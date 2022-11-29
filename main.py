@@ -35,7 +35,8 @@ def make_single_track(notes_limit, min_pitch, pitch_range, data=None):
             track = track_function(notes_limit, min_pitch, pitch_range, track, data)
         if type(data) is np.ndarray:
             track = track_img(notes_limit, min_pitch, pitch_range, track, data)
-
+        if isinstance(data, str):
+            track = track_text(notes_limit, min_pitch, pitch_range, track, data)
     else:
         track = track_random(notes_limit, min_pitch, pitch_range, track)
 
@@ -69,13 +70,44 @@ def track_img(notes_limit, min_pitch, pitch_range, track, data):
         normalized_pitch = numerator / denominator
 
         pitch = int(min_pitch + normalized_pitch * pitch_range)
-        #volume = random.randint(55, 60 + int(min_pitch / 8))
+        # volume = random.randint(55, 60 + int(min_pitch / 8))
         volume = 70
         on_note = midi.NoteOnEvent(tick=0, channel=0, data=[pitch, volume])
         off_note = midi.NoteOffEvent(tick=140, channel=0, data=[pitch, volume])
 
         track.append(on_note)
         track.append(off_note)
+
+    return track
+
+
+def track_text(notes_limit, min_pitch, pitch_range, track, data):
+    n = len(data)
+    per_note = int(n / notes_limit)
+    last_note = n - (per_note * (notes_limit - 1))
+
+    for i in range(notes_limit - 1):
+        shift = i * per_note
+        denominator = 10 ** per_note
+        numerator = int(data[shift:(shift + per_note)])
+        normalized_pitch = int(data[shift:(shift + per_note)]) / 10 ** per_note
+
+        pitch = int(min_pitch + normalized_pitch * pitch_range)
+        volume = 70
+        on_note = midi.NoteOnEvent(tick=0, channel=0, data=[pitch, volume])
+        off_note = midi.NoteOffEvent(tick=140, channel=0, data=[pitch, volume])
+
+        track.append(on_note)
+        track.append(off_note)
+
+    normalized_pitch = int(data[(n - last_note):n]) / 10 ** last_note
+    pitch = int(min_pitch + normalized_pitch * pitch_range)
+    volume = 70
+    on_note = midi.NoteOnEvent(tick=0, channel=0, data=[pitch, volume])
+    off_note = midi.NoteOffEvent(tick=140, channel=0, data=[pitch, volume])
+
+    track.append(on_note)
+    track.append(off_note)
 
     return track
 
@@ -110,9 +142,10 @@ def make_pattern(limit, number_of_tracks, min_pitch, pitch_range, data=None):
 
 
 if __name__ == '__main__':
-    filename, max_notes, tracks, min_pitch, pitch_range = "fileName.mid", 70, 1, 50, 40
-    # data = sinusoidal_function
-    data = parse_img_data('trees.jpg')
+    filename, max_notes, tracks, min_pitch, pitch_range = "sin.mid", 70, 1, 50, 30
+    data = sinusoidal_function
+    # data = parse_img_data('trees.jpg')
+    # data = parse_txt_data('some_text.txt')
 
     # Write the MIDI
     pattern = make_pattern(max_notes, tracks, min_pitch, pitch_range, data)
