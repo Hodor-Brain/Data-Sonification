@@ -6,6 +6,7 @@ import time
 import midi
 import cv2
 import numpy as np
+import pandas as pd
 from midi2audio import FluidSynth
 
 eot = midi.EndOfTrackEvent(tick=1)
@@ -27,6 +28,23 @@ def parse_txt_data(data):
     return str(int(data.decode('utf-8'), 16))
 
 
+def parse_excel_data(data):
+    data = pd.read_excel(data[0], sheet_name=data[1])
+    data = data.values.transpose()
+
+    lst = data.tolist()
+
+    for i in range(len(lst)):
+        for j in range(len(lst[i])):
+            if not isinstance(lst[i][j], str):
+                lst[i][j] = str(lst[i][j])
+            lst[i][j] = str(int((binascii.hexlify(lst[i][j].encode('utf-8'))).decode('utf-8'), 16))
+
+    data = np.array(lst)
+
+    return data, True, len(data)
+
+
 def make_single_track(notes_limit, min_pitch, pitch_range, data=None):
     track = midi.Track()
 
@@ -34,7 +52,10 @@ def make_single_track(notes_limit, min_pitch, pitch_range, data=None):
         if inspect.isfunction(data):
             track = track_function(notes_limit, min_pitch, pitch_range, track, data)
         if type(data) is np.ndarray:
-            track = track_img(notes_limit, min_pitch, pitch_range, track, data)
+            if len(data.shape) == 1:
+                track = track_excel(notes_limit, min_pitch, pitch_range, track, data)
+            if len(data.shape) == 2:
+                track = track_img(notes_limit, min_pitch, pitch_range, track, data)
         if isinstance(data, str):
             track = track_text(notes_limit, min_pitch, pitch_range, track, data)
     else:
@@ -66,6 +87,30 @@ def track_img(notes_limit, min_pitch, pitch_range, track, data):
         numerator = 0
         for j in range(per_note):
             numerator += int(data[j + shift][0]) + int(data[j + shift][1]) + int(data[j + shift][2])
+
+        normalized_pitch = numerator / denominator
+
+        pitch = int(min_pitch + normalized_pitch * pitch_range)
+        # volume = random.randint(55, 60 + int(min_pitch / 8))
+        volume = 70
+        on_note = midi.NoteOnEvent(tick=0, channel=0, data=[pitch, volume])
+        off_note = midi.NoteOffEvent(tick=140, channel=0, data=[pitch, volume])
+
+        track.append(on_note)
+        track.append(off_note)
+
+    return track
+
+
+def track_excel(notes_limit, min_pitch, pitch_range, track, data):
+    per_note = int(len(data) / notes_limit)
+
+    for i in range(notes_limit):
+        shift = i * per_note
+        numerator = sum(int(data[j + shift]) for j in range(per_note))
+        # for j in range(per_note):
+        #     numerator += int(data[j + shift])
+        denominator = 10 ** (len(str(numerator)))
 
         normalized_pitch = numerator / denominator
 
@@ -123,16 +168,24 @@ def track_random(notes_limit, min_pitch, pitch_range, track):
     return track
 
 
-def make_pattern(limit, number_of_tracks, min_pitch, pitch_range, data=None):
+def make_pattern(limit, number_of_tracks, min_pitch, pitch_range, data=None, is_excel=None):
     pattern = midi.Pattern()
     n = number_of_tracks
 
     if n >= 1:
         track_range = pitch_range / n
         for i in range(n - 1):
-            track = make_single_track(limit, min_pitch + i * track_range, track_range, data)
+            if is_excel:
+                track = make_single_track(limit, min_pitch + i * track_range, track_range, data[i])
+            else:
+                track = make_single_track(limit, min_pitch + i * track_range, track_range, data)
             pattern.append(track)
-        track = make_single_track(limit, min_pitch + (n - 1) * track_range, pitch_range - (n - 1) * track_range, data)
+        if is_excel:
+            track = make_single_track(limit, min_pitch + (n - 1) * track_range, pitch_range - (n - 1) * track_range,
+                                      data[n - 1])
+        else:
+            track = make_single_track(limit, min_pitch + (n - 1) * track_range, pitch_range - (n - 1) * track_range,
+                                      data)
         pattern.append(track)
     else:
         print("Error: number of tracks must be integer bigger than 0")
@@ -142,18 +195,19 @@ def make_pattern(limit, number_of_tracks, min_pitch, pitch_range, data=None):
 
 
 if __name__ == '__main__':
-    filename, max_notes, tracks, min_pitch, pitch_range = "sin.mid", 70, 1, 50, 30
-    data = sinusoidal_function
+    filename, max_notes, tracks, min_pitch, pitch_range, is_excel = "output/excel.mid", 70, 1, 50, 30, None
+    # data = sinusoidal_function
     # data = parse_img_data('trees.jpg')
     # data = parse_txt_data('some_text.txt')
+    data, is_excel, tracks = parse_excel_data(['sources/sampledatainsurance.xlsx', 0])
 
     # Write the MIDI
-    pattern = make_pattern(max_notes, tracks, min_pitch, pitch_range, data)
+    pattern = make_pattern(max_notes, tracks, min_pitch, pitch_range, data, is_excel)
     if pattern == -1:
         exit(-1)
     midi.write_midifile(filename, pattern)
 
     # Play the MIDI
     fs = FluidSynth
-    fs('FluidR3_GM.sf2').play_midi(filename)
+    fs('fonts/saw8detune.sf2').play_midi(filename)
 
